@@ -1,0 +1,31 @@
+# OmniPlaylist - Architecture & AI Assistant Rules
+
+## 1. Project Overview & Vision
+OmniPlaylist is a unified music management platform built with FastAPI, NiceGUI, and SQLModel. It enables syncing, matching (via ISRC & RapidFuzz), smart genre-based playlist creation, and multi-format exporting/downloading across Spotify, YouTube Music, and Amazon Music.
+
+## 2. Tech Stack & Dependencies
+- **Language**: Python 3.11+
+- **Web & UI Framework**: FastAPI + NiceGUI (Tailwind CSS, Quasar components, dark theme)
+- **Database & ORM**: SQLite + SQLModel (Pydantic v2 + SQLAlchemy core)
+- **Configuration**: `pydantic-settings` (.env parsing)
+- **Fuzzy Matching**: `rapidfuzz` (ISRC primary, string similarity secondary)
+- **Music Integrations**: `spotipy`, `ytmusicapi`, Playwright (Amazon Music)
+- **Media Engine**: `yt-dlp`, FFmpeg, `mutagen` (ID3/FLAC tagging)
+- **Package Manager**: `uv` or `poetry` (PEP 621 `pyproject.toml`)
+
+## 3. Architecture & Code Guidelines
+
+### 3.1 Separation of Concerns
+- `app/core/`: Domain models, database session management, matching algorithms.
+- `app/providers/`: Concrete music service integrations extending `BaseMusicProvider`.
+- `app/engines/`: Independent processing pipelines (genre clustering, media download queue, export builders).
+- `app/api/`: REST endpoints and real-time WebSockets for status updates.
+- `app/ui/`: NiceGUI presentation layer (pages, reactive components, player layout, theme).
+
+### 3.2 Coding Standards
+- **Typing**: Use strict Python type hints (`list[str]`, `dict[str, Any]`, `Optional[T]`, etc.).
+- **Async First**: Use async/await for network I/O, download queues, and NiceGUI event handlers.
+- **Data Models**: All external payloads and DB schemas must use SQLModel / Pydantic v2 models.
+- **Provider Abstraction**: Always interact with streaming platforms through `BaseMusicProvider` methods to maintain interchangeability.
+- **Error Handling**: Gracefully handle external API rate limits, network interruptions, and missing metadata without crashing the main loop.
+- **Documentation**: Keep docstrings concise and clear on complex logic (especially in `matcher.py` and `genre_engine.py`).

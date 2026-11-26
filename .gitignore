@@ -1,0 +1,67 @@
+# ==========================================
+# Python & Ambientes Virtuais
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# ==========================================
+# Segredos, Variáveis & Credenciais
+# ==========================================
+.env
+.env.*
+!.env.example
+cookies.txt
+ytmusic_auth.json
+amazon_cookies.json
+*.pem
+*.key
+
+# ==========================================
+# Dados Locais, Bancos & Backups OmniPlaylist
+# ==========================================
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+backups/
+
+# ==========================================
+# Mídia, Downloads & Caches Temporários
+# ==========================================
+downloads/
+media/
+music/
+cache/
+temp/
+*.mp3
+*.flac
+*.wav
+*.m4a
+*.opus
+*.ogg
+*.mp4
+*.webm
+
+# ==========================================
+# IDEs, Agentes Locais & Sistema Operacional
+# ==========================================
+.claude/settings.local.json
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
