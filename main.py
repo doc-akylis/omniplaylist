@@ -1,148 +1,77 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from nicegui import app as nicegui_app, ui
+from sqlmodel import Session
 
 from app.api.routes import router as api_router
+from app.api.v21_routes import download_studio, router as v21_router
+from app.api.v22_routes import router as v22_router
 from app.config import get_settings
-from app.core.database import init_db
-
-# Page imports
-from app.ui.pages.audio_inspector import render_audio_inspector_page
-from app.ui.pages.backup_page import render_backup_page
-from app.ui.pages.dashboard import render_dashboard_page
-from app.ui.pages.discovery_page import render_discovery_page
-from app.ui.pages.dj_mode_page import render_dj_mode_page
-from app.ui.pages.download_studio import render_download_studio_page
-from app.ui.pages.export_hub import render_export_hub_page
-from app.ui.pages.genre_studio import render_genre_studio_page
-from app.ui.pages.library_page import render_library_page
-from app.ui.pages.metadata_editor_page import render_metadata_editor_page
-from app.ui.pages.playlist_health_page import render_playlist_health_page
-from app.ui.pages.search_page import render_search_page
-from app.ui.pages.settings_page import render_settings_page
-from app.ui.pages.smart_dj_page import render_smart_dj_page
-from app.ui.pages.smart_sync_page import render_smart_sync_page
-from app.ui.pages.stats_page import render_stats_page
+from app.core.database import engine, init_db
 
 settings = get_settings()
+
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "app" / "ui" / "static"
+DIST_DIR = BASE_DIR / "app" / "ui" / "dist"
+DIST_ASSETS_DIR = DIST_DIR / "assets"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: initialize database and background workers."""
-    # Startup
     init_db()
+    with Session(engine) as session:
+        download_studio.recover_interrupted_jobs(session)
     settings.DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     yield
-    # Shutdown logic if needed
 
 
 # Initialize FastAPI app
 fastapi_app = FastAPI(
-    title=f"{settings.APP_NAME} 2.0",
+    title=f"{settings.APP_NAME} 2.2",
     lifespan=lifespan,
     debug=settings.DEBUG,
 )
 
 # Register REST and WebSocket API routes
 fastapi_app.include_router(api_router)
+fastapi_app.include_router(v21_router)
+fastapi_app.include_router(v22_router)
 
-# Mount static JS/assets for DJ Mode 2.0 AudioWorklet & Web Audio engine
-STATIC_DIR = Path(__file__).resolve().parent / "app" / "ui" / "static"
+# Mount legacy static JS/assets (AudioWorklet & Web Audio assets)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 fastapi_app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-
-# Register NiceGUI Pages
-@ui.page("/")
-def dashboard():
-    render_dashboard_page()
+# Mount compiled React/Vite assets
+DIST_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+fastapi_app.mount("/assets", StaticFiles(directory=str(DIST_ASSETS_DIR)), name="assets")
 
 
-@ui.page("/library")
-def library():
-    render_library_page()
+@fastapi_app.get("/", include_in_schema=False)
+@fastapi_app.get("/{full_path:path}", include_in_schema=False)
+async def serve_spa(full_path: str = ""):
+    """Serve the compiled React SPA (app/ui/dist/index.html) for all frontend routes."""
+    if full_path.startswith(("api/", "ws/", "static/", "assets/")):
+        raise HTTPException(status_code=404, detail="Not found")
 
+    if full_path:
+        candidate = DIST_DIR / full_path
+        if candidate.is_file() and DIST_DIR in candidate.resolve().parents:
+            return FileResponse(candidate)
 
-@ui.page("/search")
-def search():
-    render_search_page()
+    index_file = DIST_DIR / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
 
+    return HTMLResponse(
+        "<!doctype html><html><body style='background:#0B0D12;color:#E5E7EB;font-family:sans-serif;padding:2rem'>"
+        "<h1>OmniPlaylist 2.0</h1><p>Frontend build not found in <code>app/ui/dist/</code>. "
+        "Run <code>npm run build</code> inside <code>frontend/</code>.</p></body></html>"
+    )
 
-@ui.page("/smart-dj")
-def smart_dj():
-    render_smart_dj_page()
-
-
-@ui.page("/dj-mode")
-def dj_mode():
-    render_dj_mode_page()
-
-
-@ui.page("/discovery")
-def discovery():
-    render_discovery_page()
-
-
-@ui.page("/genres")
-def genres():
-    render_genre_studio_page()
-
-
-@ui.page("/download-studio")
-def download_studio():
-    render_download_studio_page()
-
-
-@ui.page("/audio-inspector")
-def audio_inspector():
-    render_audio_inspector_page()
-
-
-@ui.page("/playlist-health")
-def playlist_health():
-    render_playlist_health_page()
-
-
-@ui.page("/smart-sync")
-def smart_sync():
-    render_smart_sync_page()
-
-
-@ui.page("/metadata-editor")
-def metadata_editor():
-    render_metadata_editor_page()
-
-
-@ui.page("/export")
-def export():
-    render_export_hub_page()
-
-
-@ui.page("/stats")
-def stats():
-    render_stats_page()
-
-
-@ui.page("/backup")
-def backup():
-    render_backup_page()
-
-
-@ui.page("/settings")
-def settings_page():
-    render_settings_page()
-
-
-# Mount NiceGUI to FastAPI
-ui.run_with(
-    fastapi_app,
-    title=f"{settings.APP_NAME} 2.0",
-    dark=True,
-    favicon="🎵",
-)
 
 if __name__ == "__main__":
     import uvicorn

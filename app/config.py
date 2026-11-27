@@ -32,6 +32,24 @@ class Settings(BaseSettings):
     # Amazon Music
     AMAZON_MUSIC_COOKIES_FILE: str = "./amazon_cookies.json"
 
+    # Metadata Enrichment & Discovery (All optional, degrade gracefully)
+    ACOUSTID_API_KEY: str = ""
+    LISTENBRAINZ_TOKEN: str = ""
+    LASTFM_API_KEY: str = ""
+    DISCOGS_TOKEN: str = ""
+
+    # Multi-Source Authorized & Commercial Acquisition Providers (v2.2, all optional)
+    JAMENDO_CLIENT_ID: str = ""
+    SOUNDCLOUD_CLIENT_ID: str = ""
+    FREESOUND_API_KEY: str = ""
+    TIDAL_CLIENT_ID: str = ""
+    TIDAL_CLIENT_SECRET: str = ""
+    SEVENDIGITAL_API_KEY: str = ""
+    SEVENDIGITAL_API_SECRET: str = ""
+    RIGHTS_FOUNDRY_API_KEY: str = ""
+    QOBUZ_APP_ID: str = ""
+    QOBUZ_USER_TOKEN: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

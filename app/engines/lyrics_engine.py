@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 import httpx
 from mutagen.id3 import ID3, USLT, ID3NoHeaderError
 
 from app.core.models import UnifiedTrack
+from app.providers.rate_limiter import AsyncRateLimiter
 
 
 class LyricsEngine:
@@ -14,15 +15,28 @@ class LyricsEngine:
 
     LRCLIB_BASE_URL = "https://lrclib.net/api"
 
-    def __init__(self, timeout: float = 8.0):
+    def __init__(
+        self,
+        timeout: float = 8.0,
+        rate_limiter: Optional[AsyncRateLimiter] = None,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+    ):
         self.timeout = timeout
+        self._rate_limiter = rate_limiter or AsyncRateLimiter(min_interval_sec=0.25)
+        self._transport = transport
+
+    def _build_client(self) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
+        return httpx.AsyncClient(**kwargs)
 
     async def fetch_lyrics(self, track: UnifiedTrack) -> tuple[Optional[str], Optional[str]]:
         """Fetch lyrics for a given track from LRCLIB.
 
         Returns: (synced_lyrics_lrc, plain_lyrics)
         """
-        params = {
+        params: dict[str, Any] = {
             "track_name": track.title,
             "artist_name": track.artist,
         }
@@ -31,9 +45,10 @@ class LyricsEngine:
         if track.duration_ms:
             params["duration"] = round(track.duration_ms / 1000)
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._build_client() as client:
             try:
                 # 1. Exact match attempt via /api/get
+                await self._rate_limiter.acquire()
                 resp = await client.get(f"{self.LRCLIB_BASE_URL}/get", params=params)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -43,6 +58,7 @@ class LyricsEngine:
                         return synced, plain
 
                 # 2. Fallback search via /api/search
+                await self._rate_limiter.acquire()
                 search_query = f"{track.artist} {track.title}".strip()
                 search_resp = await client.get(
                     f"{self.LRCLIB_BASE_URL}/search", params={"q": search_query}
@@ -56,6 +72,24 @@ class LyricsEngine:
                 print(f"[LyricsEngine] Error fetching lyrics for '{track.title}': {e}")
 
         return None, None
+
+    async def search_lyrics(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
+        """Search LRCLIB directly for tracks with synced or plain lyrics."""
+        clean = query.strip()
+        if not clean:
+            return []
+
+        async with self._build_client() as client:
+            try:
+                await self._rate_limiter.acquire()
+                resp = await client.get(f"{self.LRCLIB_BASE_URL}/search", params={"q": clean})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list):
+                        return data[:limit]
+            except Exception as e:
+                print(f"[LyricsEngine] Search error for '{clean}': {e}")
+        return []
 
     def save_lrc_file(self, track: UnifiedTrack, output_dir: Optional[Path] = None) -> Optional[Path]:
         """Save synced lyrics as a .lrc file on disk alongside the audio file."""

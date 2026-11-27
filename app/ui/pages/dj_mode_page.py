@@ -8,6 +8,8 @@ from app.core.database import engine
 from app.core.models import Playlist, UnifiedTrack
 from app.engines.audio_analyzer import AudioAnalyzer
 from app.engines.dj_exporter import DjExporter
+from app.engines.dj_intelligence import DJIntelligenceEngine
+from app.engines.metadata_enrichment import MetadataEnrichmentEngine
 from app.engines.musical_analysis import MusicalAnalysisEngine
 from app.engines.technical_analysis import TechnicalAnalysisEngine
 from app.ui.layout import main_layout
@@ -18,6 +20,8 @@ analyzer = AudioAnalyzer()
 dj_exporter = DjExporter()
 tech_engine = TechnicalAnalysisEngine()
 musical_engine = MusicalAnalysisEngine()
+enrichment_engine = MetadataEnrichmentEngine()
+dj_intelligence = DJIntelligenceEngine()
 
 SIX_BAND_META = [
     ("sub_bass", "Subgrave", "20–60 Hz", "#22c55e"),
@@ -63,6 +67,7 @@ def render_dj_mode_page():
                     ui.html('<span id="dj-time-display" class="font-mono text-sm text-white">00:00 / -00:00</span>')
                     analyze_tech_btn = ui.button("Analisar Técnico", icon="graphic_eq").props("dense outline color=info no-caps")
                     analyze_music_btn = ui.button("Analisar Musical", icon="music_note").props("dense outline color=accent no-caps")
+                    enrich_btn = ui.button("Enriquecer Metadados/Letras", icon="auto_awesome").props("dense outline color=positive no-caps")
 
             ui.html(
                 '<canvas id="dj-waveform-canvas" width="1100" height="120" '
@@ -186,6 +191,55 @@ def render_dj_mode_page():
                             ui.label(f"{sec.get('start_sec', 0):.1f}s – {sec.get('end_sec', 0):.1f}s").classes("text-gray-400 font-mono")
                             ui.label(f"E: {int(sec.get('relative_energy', 0) * 100)}%").classes("text-primary font-mono")
 
+                # Capa HD & Metadados Enriquecidos
+                cover_src = track.hd_cover_url or track.cover_url
+                if cover_src or track.isrc or track.release_year:
+                    with ui.row().classes("w-full items-center gap-3 mt-2 pt-2 border-t border-[#252525]"):
+                        if cover_src:
+                            ui.image(cover_src).classes("w-12 h-12 rounded-md object-cover")
+                        with ui.column().classes("gap-0"):
+                            if track.release_year:
+                                ui.label(f"Ano: {track.release_year}").classes("text-[11px] text-gray-300")
+                            if track.isrc:
+                                ui.label(f"ISRC: {track.isrc}").classes("text-[11px] text-gray-400 font-mono")
+                            if track.lastfm_tags:
+                                ui.label(f"Tags: {track.lastfm_tags[:48]}").classes("text-[10px] text-gray-500")
+
+                # Compatibilidade Harmônica & Sugestão de Próxima Faixa
+                ui.label("Sugestão de Próxima Faixa (Camada 3)").classes("text-xs font-semibold text-gray-300 mt-2 pt-2 border-t border-[#252525]")
+                catalog_for_recs = current_set_tracks if current_set_tracks else []
+                if not catalog_for_recs:
+                    with Session(engine) as session:
+                        catalog_for_recs = session.exec(select(UnifiedTrack)).all()
+                recs = dj_intelligence.recommend_next_tracks(track, catalog_for_recs, limit=3)
+                if not recs:
+                    ui.label("Nenhuma outra faixa na biblioteca para sugerir transição.").classes("text-[11px] text-gray-500")
+                else:
+                    for rec in recs:
+                        t_pts = rec["transition_points"]
+                        delta_sign = "+" if rec["bpm_delta_pct"] > 0 else ""
+                        rel_tag = f" ({rec['bpm_relation']})" if rec["bpm_relation"] not in ("direct", "unknown") else ""
+                        with ui.row().classes("w-full items-center justify-between bg-[#1c1f26] rounded px-2 py-1.5 mt-1"):
+                            with ui.column().classes("gap-0 max-w-[190px]"):
+                                ui.label(f"{rec['title']} — {rec['artist']}").classes("text-[11px] font-semibold text-white truncate")
+                                ui.label(
+                                    f"{rec['camelot_code'] or '—'} • {delta_sign}{rec['bpm_delta_pct']:.1f}% BPM{rel_tag} • "
+                                    f"Out {t_pts['mix_out_sec']:.0f}s → In {t_pts['mix_in_sec']:.0f}s"
+                                ).classes("text-[10px] text-gray-400 font-mono")
+                            with ui.row().classes("items-center gap-1"):
+                                ui.badge(f"{int(rec['score'] * 100)}%", color="positive" if rec["is_harmonic_compatible"] else "warning").props("dense")
+                                ui.button(
+                                    icon="play_arrow",
+                                    on_click=lambda next_trk=rec["track"]: play_and_sync(next_trk, catalog_for_recs),
+                                ).props("flat round dense size=xs color=primary").tooltip("Carregar & Tocar Próxima Faixa")
+
+                # Letra Sincronizada / Normal
+                lyrics_text = track.lyrics_synced or track.lyrics_plain
+                if lyrics_text:
+                    with ui.expansion("Letra Sincronizada (.LRC)" if track.lyrics_synced else "Letra", icon="lyrics").classes("w-full text-xs text-gray-300 mt-1"):
+                        preview_lines = "\n".join(lyrics_text.splitlines()[:12])
+                        ui.label(preview_lines).classes("text-[11px] font-mono text-gray-400 whitespace-pre-wrap")
+
         def sync_deck_to_track(track: Optional[UnifiedTrack]):
             render_tech_panel(track)
             render_music_panel(track)
@@ -232,8 +286,24 @@ def render_dj_mode_page():
                     sync_deck_to_track(db_trk)
                     ui.notify("Análise musical concluída!", type="positive")
 
+        async def run_track_enrich():
+            trk = player.current_track
+            if not trk or not trk.id:
+                ui.notify("Toque uma faixa primeiro para enriquecer.", type="warning")
+                return
+            ui.notify("Enriquecendo metadados, capa HD e letras...", type="info")
+            with Session(engine) as session:
+                db_trk = session.get(UnifiedTrack, trk.id)
+                if db_trk:
+                    res = await enrichment_engine.enrich_track(db_trk, session, force=True)
+                    player.current_track = db_trk
+                    sync_deck_to_track(db_trk)
+                    sources = ", ".join(res.get("sources_used", [])) or "nenhuma nova fonte"
+                    ui.notify(f"Metadados enriquecidos ({sources})!", type="positive")
+
         analyze_tech_btn.on("click", run_track_technical)
         analyze_music_btn.on("click", run_track_musical)
+        enrich_btn.on("click", run_track_enrich)
 
         # ==================== CONTROLES DO SET & TABELA HARMÔNICA ====================
         with ui.row().classes(f"w-full {card_cls} justify-between items-center mb-4"):

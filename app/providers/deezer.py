@@ -14,8 +14,19 @@ class DeezerProvider(BaseMusicProvider):
     provider_name: str = "deezer"
     BASE_URL = "https://api.deezer.com"
 
-    def __init__(self, timeout: float = 10.0):
+    def __init__(
+        self,
+        timeout: float = 10.0,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+    ):
         self.timeout = timeout
+        self._transport = transport
+
+    def _build_client(self) -> httpx.AsyncClient:
+        kwargs: dict[str, Any] = {"timeout": self.timeout}
+        if self._transport is not None:
+            kwargs["transport"] = self._transport
+        return httpx.AsyncClient(**kwargs)
 
     async def authenticate(self) -> bool:
         """Deezer search and metadata retrieval does not require authentication."""
@@ -71,7 +82,7 @@ class DeezerProvider(BaseMusicProvider):
 
     async def search_tracks(self, query: str, limit: int = 20) -> list[UnifiedTrack]:
         """Search Deezer for tracks."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._build_client() as client:
             try:
                 resp = await client.get(
                     f"{self.BASE_URL}/search",
@@ -86,7 +97,7 @@ class DeezerProvider(BaseMusicProvider):
 
     async def get_track(self, track_id: str) -> Optional[UnifiedTrack]:
         """Retrieve full details for a single track by Deezer ID (including ISRC & BPM)."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with self._build_client() as client:
             try:
                 resp = await client.get(f"{self.BASE_URL}/track/{track_id}")
                 if resp.status_code == 200:

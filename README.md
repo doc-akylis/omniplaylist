@@ -1,79 +1,51 @@
-# OmniPlaylist 2.0 (DJ Mode 2.0)
+# OmniPlaylist 2.2 — Universal Music Discovery & Automatic Acquisition Engine
 
-Plataforma unificada de gerenciamento de playlists, sincronização multiplataforma (Spotify, YouTube Music, Amazon Music, Deezer), análise técnica e musical de áudio e estação **DJ Mode 2.0** em tempo real.
-
----
-
-## Arquitetura do Projeto
-
-- **Camada Web & UI (`main.py`, `app/ui/`, `app/api/`):** FastAPI + NiceGUI (Tailwind CSS / Quasar dark theme) com endpoints REST/WebSocket e motor **Web Audio API + AudioWorklet** (`app/ui/static/js/`) para espectro de 6 bandas, espectrograma waterfall, waveform interativa e medidores Peak/RMS ao vivo.
-- **Domínio & Persistência (`app/core/`):** SQLite + SQLModel (`UnifiedTrack`, `Playlist`), migrações idempotentes (`migrate_db`) e matching via ISRC + RapidFuzz (`matcher.py`).
-- **Motores de Processamento (`app/engines/`):**
-  - `technical_analysis.py`: Pipeline single-pass via **FFmpeg / ffprobe** (codec, bitrate, sample rate, bit depth, EBU R128 LUFS, True Peak, Dynamic Range, Crest Factor, ReplayGain, clipping e silêncio).
-  - `musical_analysis.py`: Análise musical assíncrona em worker threads via **Librosa + NumPy** (BPM, estabilidade de tempo, beatgrid 4/4, tonalidade Krumhansl-Schmuckler, notação Camelot, energia, danceability e segmentação estrutural).
-  - `local_scanner.py`, `downloader.py`, `exporter.py`, `dj_exporter.py`, `genre_engine.py`.
-- **Provedores (`app/providers/`):** Integrações intercambiáveis estendendo `BaseMusicProvider`.
+Plataforma local unificada de descoberta musical multi-fonte, comparação técnica e aquisição automática autorizada, gerenciamento de playlists, inteligência de qualidade de áudio, sequenciamento harmônico e estação **DJ Mode Pro** em tempo real.
 
 ---
 
-## Pré-requisitos do Sistema
+## Arquitetura (v2.2)
 
-1. **Python 3.11+** (testado em Python 3.12)
-2. **`uv`** (gerenciador de pacotes e ambientes virtuais — recomendado) ou `pip`
-3. **FFmpeg e `ffprobe`** instalados e disponíveis no `PATH` do sistema:
-   - **Windows (WinGet):** `winget install Gyan.FFmpeg`
-   - **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install -y ffmpeg`
-   - **macOS (Homebrew):** `brew install ffmpeg`
+- **Backend (`main.py`, `app/api/`):** FastAPI + SQLModel + SQLite (`omniplaylist.db`) com migrações idempotentes (`migrate_db()`), WebSocket `/api/ws/progress` e serving da SPA compilada (`app/ui/dist/`).
+- **Descoberta Multi-Fonte & Aquisição Automática (`app/sources/`, `app/engines/music_search_engine.py`, `source_quality_comparator.py`, `acquisition_engine.py`):**
+  - 14 adaptadores categorizados estritamente em `DISCOVERY` (MusicBrainz, Discogs, Spotify), `PREVIEW_STREAMING` (iTunes, Deezer), `AUTHORIZED_DOWNLOAD` (Internet Archive, Wikimedia Commons, Audius, Jamendo, SoundCloud, Freesound) e `COMMERCIAL_DELIVERY` (7digital/MassiveMusic, The Rights Foundry, Qobuz Partner).
+  - Agrupamento por gravação e versão (`TrackMatcher.detect_version_type` + `group_recordings`), comparador anti-transcode, bloqueio comercial (`AWAITING_APPROVAL`) até aprovação do usuário e segurança anti-SSRF/redirect/magic-bytes/SHA-256 (`app/core/security.py`).
+- **Frontend (`frontend/`):** React 19 + TypeScript + Vite 8 + Tailwind CSS v4 + Lucide Icons + Web Audio API + `essentia.js` WASM (tema Studio Dark).
+  - **DJ Mode Pro:** Decks duplos A/B, waveforms paralelas RGB, 8 Hot Cues por seção, EQ 3 bandas + Filtro HPF/LPF, Sync, Pitch, Crossfader, **Transition Analysis** (BPM, Camelot, delta LUFS, bass overlap, pico combinado estimado) e **EQ Assist** não-destrutivo.
+  - **Spectrum & DSP Inspector:** Analisador FFT 8192-pt (Peak Hold, RMS, Waterfall, 6-Band Studio), Stereo Width (M/S estimado), Correlação de Fase, telemetria FFmpeg/Librosa e painel **Audio Quality Intelligence**.
+  - **Quality Dashboard:** Visão agregada real do acervo com distribuição de codecs, bitrates, sample rates, Car Audio Score e filtros acionáveis.
+  - **Playlists & Smart Flow:** CRUD N:N persistente, métricas reais, exportação M3U/M3U8 com relatório de faltantes e **Smart Sequencer** multi-modo reversível.
+  - **Download Studio:** Fila persistente (`DownloadJob`), perfis (`ORIGINAL`, `FLAC_ARCHIVE`, `WAV_16`, `WAV_24`, `MP3_320`, `AAC_256`), **Upgrade Engine**, tagging Mutagen e substituição atômica com backup.
+  - **Busca Omnichannel, Biblioteca Beets & Status das 8 APIs:** SQLite, iTunes, Deezer, MusicBrainz + Cover Art Archive, LRCLIB, AcoustID, Last.fm e ListenBrainz.
 
 ---
 
-## Setup em Outra Máquina (Windows ou Linux)
+## Pré-requisitos
 
-### 1. Clonar o repositório
-```bash
-git clone https://github.com/doc-akylis/omniplaylist.git
-cd omniplaylist
-```
+1. **Python 3.11+** (testado em 3.12 via `.venv`)
+2. **Node.js 20+** e `npm` (testado em Node v24.20.0 / npm 11.19.0)
+3. **FFmpeg e `ffprobe`** instalados no `PATH`
 
-### 2. Configurar variáveis de ambiente
-```bash
-# Linux / macOS / Git Bash
-cp .env.example .env
+---
 
-# Windows PowerShell
-Copy-Item .env.example .env
-```
-*(Edite o `.env` apenas se for utilizar credenciais do Spotify, YouTube Music ou Amazon Music.)*
+## Setup, Build e Testes
 
-### 3. Instalar dependências
-Com `uv` (recomendado — usa `uv.lock` para reprodutibilidade exata):
-```bash
+```powershell
+# 1. Dependências Python (com uv ou .venv)
 uv sync --all-extras
-```
 
-Ou com `pip` tradicional:
-```bash
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
-pip install -r requirements.txt
-```
+# 2. Build do Frontend React
+cd frontend
+npm install
+npm run build
+cd ..
 
-### 4. Rodar a suíte de testes
-```bash
-# Windows
+# 3. Rodar a suíte completa de testes
 .venv\Scripts\python.exe -m pytest -v
 
-# Linux / macOS
-.venv/bin/python -m pytest -v
+# 4. Iniciar a aplicação
+.\iniciar.bat
+# ou: .venv\Scripts\python.exe main.py
 ```
 
-### 5. Iniciar a aplicação
-```bash
-# Windows
-.venv\Scripts\python.exe main.py
-
-# Linux / macOS
-.venv/bin/python main.py
-```
 Acesse no navegador: **`http://localhost:8000`**

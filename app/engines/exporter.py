@@ -21,7 +21,9 @@ class PlaylistExporter:
 
         safe_name = playlist.name.replace(" ", "_").replace("/", "_").replace("\\", "_")
 
-        if config.format == ExportFormat.M3U8:
+        if config.format == ExportFormat.M3U:
+            return self._export_m3u8(playlist, tracks, target_dir / f"{safe_name}.m3u")
+        elif config.format == ExportFormat.M3U8:
             return self._export_m3u8(playlist, tracks, target_dir / f"{safe_name}.m3u8")
         elif config.format == ExportFormat.CSV:
             return self._export_csv(playlist, tracks, target_dir / f"{safe_name}.csv")
@@ -31,6 +33,48 @@ class PlaylistExporter:
             return self._export_xspf(playlist, tracks, target_dir / f"{safe_name}.xspf")
         else:
             raise ValueError(f"Unsupported format: {config.format}")
+
+    def export_m3u_with_report(
+        self,
+        playlist: Playlist,
+        tracks: list[UnifiedTrack],
+        output_dir: Optional[Path] = None,
+        fmt: ExportFormat = ExportFormat.M3U8,
+    ) -> dict[str, object]:
+        """Export M3U/M3U8 using verified local paths and report any missing audio files."""
+        target_dir = output_dir or self.default_output_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        ext = "m3u" if fmt == ExportFormat.M3U else "m3u8"
+        safe_name = playlist.name.replace(" ", "_").replace("/", "_").replace("\\", "_")
+        out_path = target_dir / f"{safe_name}.{ext}"
+
+        lines = ["#EXTM3U", f"#PLAYLIST:{playlist.name}"]
+        missing_files: list[dict[str, object]] = []
+
+        for t in tracks:
+            duration_sec = (t.duration_ms // 1000) if t.duration_ms else -1
+            lines.append(f"#EXTINF:{duration_sec},{t.artist} - {t.title}")
+            if t.local_path and Path(t.local_path).exists():
+                lines.append(str(Path(t.local_path).resolve()))
+            else:
+                missing_files.append(
+                    {
+                        "track_id": t.id,
+                        "title": t.title,
+                        "artist": t.artist,
+                        "reason": "Arquivo local ausente no disco" if t.local_path else "Sem arquivo local",
+                    }
+                )
+                lines.append(t.local_path or t.preview_url or f"#MISSING:{t.artist} - {t.title}")
+
+        out_path.write_text("\n".join(lines), encoding="utf-8")
+        return {
+            "exported_file": str(out_path),
+            "format": ext,
+            "total_tracks": len(tracks),
+            "exported_local_count": len(tracks) - len(missing_files),
+            "missing_files": missing_files,
+        }
 
     def _export_m3u8(self, playlist: Playlist, tracks: list[UnifiedTrack], output_file: Path) -> Path:
         """Generate standard Extended M3U8 file."""

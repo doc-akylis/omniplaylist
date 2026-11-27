@@ -7,6 +7,7 @@ from sqlmodel import Field as SQLField, Relationship, SQLModel
 
 class ExportFormat(str, Enum):
     """Supported playlist export formats."""
+    M3U = "m3u"
     M3U8 = "m3u8"
     CSV = "csv"
     JSON = "json"
@@ -18,6 +19,7 @@ class PlaylistTrackLink(SQLModel, table=True):
     playlist_id: Optional[int] = SQLField(default=None, foreign_key="playlist.id", primary_key=True)
     track_id: Optional[int] = SQLField(default=None, foreign_key="unifiedtrack.id", primary_key=True)
     position: int = SQLField(default=0)
+    added_at: Optional[datetime] = SQLField(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class UnifiedTrack(SQLModel, table=True):
@@ -36,6 +38,8 @@ class UnifiedTrack(SQLModel, table=True):
     ytmusic_id: Optional[str] = SQLField(default=None, index=True)
     amazon_id: Optional[str] = SQLField(default=None, index=True)
     deezer_id: Optional[str] = SQLField(default=None, index=True)
+    musicbrainz_recording_id: Optional[str] = SQLField(default=None, index=True)
+    acoustid_id: Optional[str] = SQLField(default=None, index=True)
 
     # Audio analysis & characteristics
     bpm: Optional[float] = SQLField(default=None)
@@ -85,9 +89,28 @@ class UnifiedTrack(SQLModel, table=True):
     preview_url: Optional[str] = SQLField(default=None)
     hd_cover_url: Optional[str] = SQLField(default=None)
     release_year: Optional[int] = SQLField(default=None)
+    lastfm_tags: Optional[str] = SQLField(default=None)
+    metadata_enriched_at: Optional[datetime] = SQLField(default=None)
 
     # Local file cache
     local_path: Optional[str] = SQLField(default=None)
+
+    # Audio Quality Intelligence (v2.1)
+    is_preview: bool = SQLField(default=False)
+    source_classification: Optional[str] = SQLField(default=None)  # LOSSLESS_SOURCE, LOSSY_SOURCE, UNKNOWN_SOURCE
+    spectral_cutoff_hz: Optional[float] = SQLField(default=None)
+    upscale_status: Optional[str] = SQLField(default=None)  # VERIFIED_LOSSLESS_SOURCE, VERIFIED_LOSSY_SOURCE, LIKELY_UPSCALE, SUSPECTED_UPSCALE, UNKNOWN
+    upscale_confidence: Optional[float] = SQLField(default=None)
+    is_fake_upscale: bool = SQLField(default=False)
+    sub_bass_energy: Optional[float] = SQLField(default=None)
+    mid_bass_energy: Optional[float] = SQLField(default=None)
+    midrange_energy: Optional[float] = SQLField(default=None)
+    high_freq_energy: Optional[float] = SQLField(default=None)
+    car_audio_score: Optional[float] = SQLField(default=None)
+    car_audio_status: Optional[str] = SQLField(default=None)
+    car_audio_ready: bool = SQLField(default=False)
+    quality_intelligence_json: Optional[str] = SQLField(default=None)
+    quality_analyzed_at: Optional[datetime] = SQLField(default=None)
 
     created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
@@ -109,6 +132,8 @@ class Playlist(SQLModel, table=True):
     id: Optional[int] = SQLField(default=None, primary_key=True)
     name: str = SQLField(index=True)
     description: Optional[str] = SQLField(default=None)
+    cover_url: Optional[str] = SQLField(default=None)
+    original_order_json: Optional[str] = SQLField(default=None)
     source_provider: str = SQLField(default="local")  # spotify, ytmusic, amazon, local
     external_id: Optional[str] = SQLField(default=None)
     created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
@@ -188,4 +213,141 @@ class UserSettings(SQLModel, table=True):
     dashboard_layout_json: str = SQLField(
         default='["stats","recent_added","favorite_playlists","quick_actions","download_queue"]'
     )
+    updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AudioProvenance(SQLModel, table=True):
+    """Structured origin and lifecycle provenance for an audio track."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    track_id: int = SQLField(foreign_key="unifiedtrack.id", index=True)
+    acquisition_source: str = SQLField(default="unknown")  # local_scan, download_studio, online_import, unknown
+    provider: Optional[str] = SQLField(default=None)
+    source_item_id: Optional[str] = SQLField(default=None)
+    source_url: Optional[str] = SQLField(default=None)
+    file_sha256: Optional[str] = SQLField(default=None, index=True)
+    license_info: Optional[str] = SQLField(default=None)
+    original_codec: Optional[str] = SQLField(default=None)
+    original_bitrate_kbps: Optional[int] = SQLField(default=None)
+    original_sample_rate_hz: Optional[int] = SQLField(default=None)
+    original_bit_depth: Optional[int] = SQLField(default=None)
+    origin_classification: str = SQLField(default="UNKNOWN_SOURCE")  # LOSSLESS_SOURCE, LOSSY_SOURCE, UNKNOWN_SOURCE
+    current_container: Optional[str] = SQLField(default=None)
+    current_codec: Optional[str] = SQLField(default=None)
+    requested_profile: Optional[str] = SQLField(default=None)
+    evidence_json: Optional[str] = SQLField(default=None)
+    declared_metadata_json: Optional[str] = SQLField(default=None)
+    extracted_metadata_json: Optional[str] = SQLField(default=None)
+    inferences_json: Optional[str] = SQLField(default=None)
+    verification_status: str = SQLField(default="UNVERIFIED")  # VERIFIED, PARTIAL, UNVERIFIED
+    engine_name: str = SQLField(default="AudioQualityIntelligenceEngine")
+    engine_version: str = SQLField(default="2.2.0")
+    acquired_at: Optional[datetime] = SQLField(default=None)
+    analyzed_at: Optional[datetime] = SQLField(default=None)
+    updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AudioProcessingHistory(SQLModel, table=True):
+    """Immutable audit trail of conversions, replacements, and quality analyses."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    track_id: int = SQLField(foreign_key="unifiedtrack.id", index=True)
+    provenance_id: Optional[int] = SQLField(default=None, foreign_key="audioprovenance.id")
+    operation: str = SQLField(index=True)  # acquire, convert, tag, upgrade_replace, quality_analyze
+    from_codec: Optional[str] = SQLField(default=None)
+    to_codec: Optional[str] = SQLField(default=None)
+    from_bitrate_kbps: Optional[int] = SQLField(default=None)
+    to_bitrate_kbps: Optional[int] = SQLField(default=None)
+    profile: Optional[str] = SQLField(default=None)
+    source_path: Optional[str] = SQLField(default=None)
+    dest_path: Optional[str] = SQLField(default=None)
+    backup_path: Optional[str] = SQLField(default=None)
+    was_lossy_to_lossless: bool = SQLField(default=False)
+    warnings_json: Optional[str] = SQLField(default=None)
+    engine_name: str = SQLField(default="DownloadStudioEngine")
+    engine_version: str = SQLField(default="2.1.0")
+    created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DownloadJob(SQLModel, table=True):
+    """Persistent acquisition, conversion, validation, and upgrade job."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    track_id: Optional[int] = SQLField(default=None, foreign_key="unifiedtrack.id", index=True)
+    provider: str = SQLField(default="authorized_url")
+    source_item_id: Optional[str] = SQLField(default=None)
+    source_url: Optional[str] = SQLField(default=None)
+    source_label: Optional[str] = SQLField(default=None)
+    status: str = SQLField(default="PENDING", index=True)
+    profile: str = SQLField(default="ORIGINAL")
+    acquisition_mode: str = SQLField(default="AUTO_BEST_SOURCE")
+    requires_approval: bool = SQLField(default=False)
+    approved_by_user: bool = SQLField(default=False)
+    estimated_cost_label: Optional[str] = SQLField(default=None)
+    license_info: Optional[str] = SQLField(default=None)
+    file_sha256: Optional[str] = SQLField(default=None)
+    target_sample_rate_hz: Optional[int] = SQLField(default=None)
+    source_path: Optional[str] = SQLField(default=None)
+    dest_path: Optional[str] = SQLField(default=None)
+    temp_path: Optional[str] = SQLField(default=None)
+    backup_path: Optional[str] = SQLField(default=None)
+    progress: float = SQLField(default=0.0)
+    speed_bps: Optional[float] = SQLField(default=None)
+    eta_sec: Optional[float] = SQLField(default=None)
+    estimated_bytes: Optional[int] = SQLField(default=None)
+    final_bytes: Optional[int] = SQLField(default=None)
+    current_stage: str = SQLField(default="PENDING")
+    logs_json: str = SQLField(default="[]")
+    error_message: Optional[str] = SQLField(default=None)
+    attempts: int = SQLField(default=0)
+    max_attempts: int = SQLField(default=3)
+    upgrade_decision: Optional[str] = SQLField(default=None)
+    upgrade_reason: Optional[str] = SQLField(default=None)
+    created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: Optional[datetime] = SQLField(default=None)
+    finished_at: Optional[datetime] = SQLField(default=None)
+    updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MusicProviderConfig(SQLModel, table=True):
+    """Non-secret configuration and health state for each registered music source adapter."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    provider_id: str = SQLField(unique=True, index=True)
+    enabled: bool = SQLField(default=True)
+    priority: int = SQLField(default=100)
+    last_health_status: Optional[str] = SQLField(default=None)
+    last_health_check_at: Optional[datetime] = SQLField(default=None)
+    notes: Optional[str] = SQLField(default=None)
+    updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MusicSearchSession(SQLModel, table=True):
+    """Multi-provider search session cache and source telemetry."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    query: str = SQLField(index=True)
+    search_type: str = SQLField(default="track")
+    providers_queried_json: str = SQLField(default="[]")
+    providers_responded_json: str = SQLField(default="[]")
+    providers_failed_json: str = SQLField(default="{}")
+    downloadable_count: int = SQLField(default=0)
+    total_results: int = SQLField(default=0)
+    cached_results_json: str = SQLField(default="[]")
+    expires_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class AcquisitionRecord(SQLModel, table=True):
+    """Audit record of automatic or manual source selection, permission approval, and acquisition outcome."""
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    search_session_id: Optional[int] = SQLField(default=None, foreign_key="musicsearchsession.id")
+    download_job_id: Optional[int] = SQLField(default=None, foreign_key="downloadjob.id", index=True)
+    track_id: Optional[int] = SQLField(default=None, foreign_key="unifiedtrack.id", index=True)
+    provider_id: str = SQLField(index=True)
+    source_item_id: Optional[str] = SQLField(default=None)
+    acquisition_mode: str = SQLField(default="AUTO_BEST_SOURCE")
+    status: str = SQLField(default="INITIATED")
+    license_info: Optional[str] = SQLField(default=None)
+    was_paid: bool = SQLField(default=False)
+    approved_by_user: bool = SQLField(default=False)
+    file_sha256: Optional[str] = SQLField(default=None)
+    comparison_summary_json: Optional[str] = SQLField(default=None)
+    error_message: Optional[str] = SQLField(default=None)
+    created_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = SQLField(default_factory=lambda: datetime.now(timezone.utc))

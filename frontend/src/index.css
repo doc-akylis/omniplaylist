@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-base: #0B0D12;
+    --bg-panel: #12161F;
+    --border-tech: #1A202C;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    background-color: #0B0D12;
+    color: #E2E8F0;
+    margin: 0;
+    overflow-x: hidden;
+  }
+}
+
+.font-mono-tech {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.studio-panel {
+  background-color: #12161F;
+  border: 1px solid #1A202C;
+  border-radius: 0.5rem;
+}
+
+.studio-panel-elevated {
+  background-color: #151A25;
+  border: 1px solid #242C3D;
+  border-radius: 0.5rem;
+}
+
+/* Custom precision scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0D12;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #242C3D;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Hardware style range faders */
+input[type="range"].studio-fader {
+  -webkit-appearance: none;
+  appearance: none;
+  background: #1A202C;
+  border-radius: 999px;
+  outline: none;
+}
+
+input[type="range"].studio-fader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: #38BDF8;
+  border: 1px solid #E0F2FE;
+  cursor: pointer;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.45);
+}
+
+input[type="range"].studio-fader-amber::-webkit-slider-thumb {
+  background: #F59E0B;
+  border-color: #FEF3C7;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.45);
+}

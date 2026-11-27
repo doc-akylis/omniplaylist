@@ -1,42 +1,17 @@
 @echo off
-setlocal enabledelayedexpansion
-
-:: Configura UTF-8 e título
-chcp 65001 >nul 2>&1
-title OmniPlaylist 2.0
+chcp 65001 >nul
 cd /d "%~dp0"
 
-:: Configuração de cores ANSI
-set "ESC=	"
-:: Obtém o caractere Escape real para compatibilidade
-for /F %%a in ('echo prompt $E ^| cmd') do set "ESC=%%a"
-
-set "RESET=%ESC%[0m"
-set "BOLD=%ESC%[1m"
-set "CYAN=%ESC%[38;2;80;200;255m"
-set "GRAY=%ESC%[90m"
-set "GREEN=%ESC%[38;2;110;230;140m"
-set "WHITE=%ESC%[97m"
-
-cls
-echo.
-echo  %CYAN%┌────────────────────────────────────────────────────────┐%RESET%
-echo  %CYAN%│%RESET%  %BOLD%%WHITE%OmniPlaylist 2.0%RESET%                                    %CYAN%│%RESET%
-echo  %CYAN%├────────────────────────────────────────────────────────┤%RESET%
-echo  %CYAN%│%RESET%  %GRAY%• Status:%RESET%  %GREEN%● Rodando localmente%RESET%                       %CYAN%│%RESET%
-echo  %CYAN%│%RESET%  %GRAY%• URL:%RESET%     %BOLD%%WHITE%http://localhost:8000%RESET%                     %CYAN%│%RESET%
-echo  %CYAN%│%RESET%  %GRAY%• Dica:%RESET%    Pressione %WHITE%Ctrl+C%RESET% para encerrar             %CYAN%│%RESET%
-echo  %CYAN%└────────────────────────────────────────────────────────┘%RESET%
-echo.
-
-:: Executa a aplicação
-if exist ".\.venv\Scripts\python.exe" (
-    .\.venv\Scripts\python.exe main.py
-) else (
-    echo  %ESC%[31m[ERRO] Ambiente virtual (.venv) não encontrado.%RESET%
-    echo.
+if not exist ".\.venv\Scripts\python.exe" (
+    echo [ERRO] Ambiente virtual ^(.venv^) nao encontrado em %~dp0
+    pause
+    exit /b 1
 )
 
+.\.venv\Scripts\python.exe -c "import os; os.system(''); print('\n  \033[38;2;80;200;255m┌────────────────────────────────────────────────────────┐\033[0m\n  \033[38;2;80;200;255m│\033[0m  \033[1;97mOmniPlaylist 2.0 (React Studio UI)\033[0m                  \033[38;2;80;200;255m│\033[0m\n  \033[38;2;80;200;255m├────────────────────────────────────────────────────────┤\033[0m\n  \033[38;2;80;200;255m│\033[0m  \033[90m• Status:\033[0m  \033[38;2;110;230;140m● Rodando localmente\033[0m                       \033[38;2;80;200;255m│\033[0m\n  \033[38;2;80;200;255m│\033[0m  \033[90m• URL:\033[0m     \033[1;97mhttp://localhost:8000\033[0m                     \033[38;2;80;200;255m│\033[0m\n  \033[38;2;80;200;255m│\033[0m  \033[90m• Dica:\033[0m    Pressione \033[97mCtrl+C\033[0m para encerrar             \033[38;2;80;200;255m│\033[0m\n  \033[38;2;80;200;255m└────────────────────────────────────────────────────────┘\033[0m\n')"
+
+.\.venv\Scripts\python.exe main.py
+
 echo.
-echo  %GRAY%Pressione qualquer tecla para fechar esta janela...%RESET%
+echo Pressione qualquer tecla para fechar esta janela...
 pause >nul
